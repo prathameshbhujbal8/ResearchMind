@@ -1,15 +1,14 @@
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
-try:
-    with DDGS() as ddgs:
-        results = list(ddgs.text("Tesla company overview", max_results=5))
+results = DDGS().text(
+    "Tesla Inc official company profile",
+    max_results=5
+)
 
-    print("Number of results:", len(results))
+results = list(results)
 
-    for result in results:
-        print("\nTITLE:", result.get("title"))
-        print("URL:", result.get("href"))
+print("Number of results:", len(results))
 
-except Exception as e:
-    print("ERROR:")
-    print(e)
+for r in results:
+    print("\nTITLE:", r.get("title"))
+    print("URL:", r.get("href"))
