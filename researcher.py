@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import requests
 from bs4 import BeautifulSoup
@@ -61,10 +62,6 @@ def generate_search_queries(company_name):
 
         content = response.choices[0].message.content
 
-        print("\n========== GROQ RESPONSE ==========\n")
-        print(content)
-        print("\n===================================\n")
-
         try:
             return json.loads(content)
 
@@ -101,7 +98,8 @@ def search_query(query, max_results=3):
             results_list.append(
                 {
                     "title": result.get("title"),
-                    "url": result.get("href")
+                    "url": result.get("href"),
+                    "snippet": result.get("body", "")
                 }
             )
 
@@ -125,6 +123,8 @@ def search_all_queries(company_name):
         print(f"\nSearching: {query}")
 
         all_results[query] = search_query(query)
+
+        time.sleep(1.5)
 
     return all_results
 
@@ -201,6 +201,16 @@ def collect_research(company_name):
                             "title": item["title"],
                             "url": url,
                             "text": text[:5000]
+                        }
+                    )
+
+                elif item.get("snippet"):
+
+                    research_data[query].append(
+                        {
+                            "title": item["title"],
+                            "url": url,
+                            "text": item["snippet"]
                         }
                     )
 

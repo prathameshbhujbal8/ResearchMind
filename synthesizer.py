@@ -1,72 +1,86 @@
 import os
-import google.generativeai as genai
+from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
-
-model = genai.GenerativeModel(
-    "gemini-2.5-flash"
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
 )
 
 
-def summarize_section(section_name, raw_text):
+def generate_full_report(research_data):
+
+    combined_research = ""
+
+    for section_name, documents in research_data.items():
+
+        combined_research += f"\n\nSECTION: {section_name}\n"
+
+        for doc in documents:
+
+            combined_research += doc["text"][:1500]
+            combined_research += "\n\n"
 
     prompt = f"""
     You are a professional business analyst.
 
-    Create a concise professional report section.
+    Create a Company Intelligence Report.
 
-    Section:
-    {section_name}
+    Use EXACTLY these sections:
+
+    ## Company Overview
+
+    ## Leadership Team
+
+    ## Products and Services
+
+    ## Funding and Investors
+
+    ## Recent News
+
+    ## Competitors
+
+    ## Financial Performance
+
+    ## Risks and Controversies
 
     Rules:
-    - Maximum 150 words
+
     - Professional tone
-    - Do not invent facts
-    - Use only provided information
+    - No hallucinations
+    - Use only supplied information
+    - Maximum 120 words per section
     - Remove website clutter
-    - Write as if preparing a company intelligence report
 
     Research Data:
 
-    {raw_text}
+    {combined_research[:15000]}
     """
 
-    response = model.generate_content(prompt)
+    # Error handling added — prevents raw exception reaching Streamlit UI
+    # Returns a readable failure message instead of crashing the pipeline
+    try:
 
-    return response.text
-
-
-def summarize_all_sections(research_data):
-
-    summaries = {}
-
-    for section_name, documents in research_data.items():
-
-        print(f"\nSummarizing: {section_name}")
-
-        combined_text = ""
-
-        for doc in documents:
-
-            combined_text += doc["text"]
-            combined_text += "\n\n"
-
-        if len(combined_text.strip()) == 0:
-
-            summaries[section_name] = "No information available."
-
-            continue
-
-        summary = summarize_section(
-            section_name,
-            combined_text[:10000]
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3
         )
 
-        summaries[section_name] = summary
+        return response.choices[0].message.content
 
-    return summaries
+    except Exception as e:
+
+        print(f"Synthesis Error: {e}")
+
+        return (
+            "## Report Generation Failed\n\n"
+            "Unable to synthesize report due to an API error. "
+            "Please try again in a few moments."
+        )
