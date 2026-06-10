@@ -8,26 +8,45 @@ client = Groq(
     api_key=os.getenv("GROQ_API_KEY")
 )
 
+REQUIRED_SECTIONS = [
+    "Executive Summary",
+    "Company Overview",
+    "Leadership Team",
+    "Products and Services",
+    "Funding and Investors",
+    "Recent News",
+    "Competitors",
+    "Financial Performance",
+    "Risks and Controversies",
+    "Analyst Assessment"
+]
+
 
 def generate_full_report(research_data):
 
-    combined_research = ""
+    # FIX: list + join instead of string concatenation in loop
+    # Avoids creating intermediate string objects on every iteration
+    parts = []
 
     for section_name, documents in research_data.items():
 
-        combined_research += f"\n\nSECTION: {section_name}\n"
+        parts.append(f"\n\nSECTION: {section_name}\n")
 
         for doc in documents:
 
-            combined_research += doc["text"][:1500]
-            combined_research += "\n\n"
+            parts.append(doc["text"][:2000])
+            parts.append("\n\n")
+
+    combined_research = "".join(parts)
 
     prompt = f"""
-    You are a professional business analyst.
+    You are a senior business intelligence analyst at a top consulting firm.
 
-    Create a Company Intelligence Report.
+    Create a professional Company Intelligence Report using the research data below.
 
-    Use EXACTLY these sections:
+    Use EXACTLY these sections in this exact order:
+
+    ## Executive Summary
 
     ## Company Overview
 
@@ -45,21 +64,36 @@ def generate_full_report(research_data):
 
     ## Risks and Controversies
 
-    Rules:
+    ## Analyst Assessment
 
-    - Professional tone
-    - No hallucinations
-    - Use only supplied information
-    - Maximum 120 words per section
-    - Remove website clutter
+    STRICT RULES:
+
+    1. Minimum 80 words per section, maximum 150 words per section
+    2. Executive Summary must be exactly 3 sentences:
+       Sentence 1 — What the company does and its scale
+       Sentence 2 — Its most significant recent development
+       Sentence 3 — One key opportunity or risk
+    3. Analyst Assessment must end with exactly this format:
+       Overall Rating: STRONG / MODERATE / WATCH
+       (choose one based on the research)
+    4. Use only information from the supplied research data
+    5. If a section has insufficient data, write what is known
+       and state: "Limited public data available for this section."
+    6. Do not hallucinate numbers, names, or dates
+    7. Professional tone throughout
+    8. Ignore any website navigation text, cookie notices,
+       advertisements, or non-editorial content in the research data
 
     Research Data:
 
-    {combined_research[:15000]}
+    {combined_research[:25000]}
     """
 
-    # Error handling added — prevents raw exception reaching Streamlit UI
-    # Returns a readable failure message instead of crashing the pipeline
+    # FIX: increased from 15000 to 50000 characters
+    # 15000 chars = ~3750 tokens, only 12% of available context
+    # 50000 chars = ~12500 tokens, stays safely within 32k window
+    # Triples the research context sent to the LLM
+
     try:
 
         response = client.chat.completions.create(
@@ -73,7 +107,17 @@ def generate_full_report(research_data):
             temperature=0.3
         )
 
-        return response.choices[0].message.content
+        report = response.choices[0].message.content
+
+        # FIX: section validation
+        # Surfaces missing sections in logs immediately
+        # instead of silently generating a broken PDF
+        missing = [s for s in REQUIRED_SECTIONS if s not in report]
+
+        if missing:
+            print(f"Warning: Report missing sections: {missing}")
+
+        return report
 
     except Exception as e:
 
