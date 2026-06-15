@@ -7,46 +7,38 @@ from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
-    PageBreak
+    PageBreak,
+    HRFlowable,
+    Table,
+    TableStyle
 )
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def sanitize_filename(name):
-    """
-    Removes characters that are unsafe in filenames.
-    'Tata Motors & Sons' → 'Tata_Motors__Sons'
-    Prevents file system errors on all platforms including Streamlit Cloud.
-    """
     name = re.sub(r'[^\w\s-]', '', name)
     name = name.strip().replace(' ', '_')
     return name
 
 
 def clean_text_for_pdf(text):
-    """
-    Replaces characters ReportLab's default font cannot render.
-    Fixes the ■ symbol that appears instead of ₹ in the current PDF.
-    """
     text = text.replace("₹", "Rs.")
-    text = text.replace("\u20b9", "Rs.")  # Unicode rupee sign
-    text = text.replace("■", "Rs.")       # Broken rendering fallback
-    text = text.replace("\u2019", "'")    # Right single quotation mark
-    text = text.replace("\u2018", "'")    # Left single quotation mark
-    text = text.replace("\u201c", '"')    # Left double quotation mark
-    text = text.replace("\u201d", '"')    # Right double quotation mark
-    text = text.replace("\u2013", "-")    # En dash
-    text = text.replace("\u2014", "--")   # Em dash
+    text = text.replace("\u20b9", "Rs.")
+    text = text.replace("■", "Rs.")
+    text = text.replace("\u2019", "'")
+    text = text.replace("\u2018", "'")
+    text = text.replace("\u201c", '"')
+    text = text.replace("\u201d", '"')
+    text = text.replace("\u2013", "-")
+    text = text.replace("\u2014", "--")
     return text
 
 
 def extract_source_urls(research_data):
-    """
-    Pulls all scraped URLs out of the research_data dict.
-    Returns a deduplicated list for the sources page.
-    """
     urls = []
     seen = set()
     for documents in research_data.values():
@@ -58,67 +50,223 @@ def extract_source_urls(research_data):
     return urls
 
 
-# ── Main Builder ─────────────────────────────────────────────────────────────
+def build_rating_badge(body_text, styles):
 
-def create_company_report(company_name, report_text, research_data=None):
-    """
-    Builds a PDF intelligence report and saves it to the system temp directory.
-    Using tempfile ensures compatibility with Streamlit Cloud's read-only filesystem.
+    RATING_COLORS = {
+        "STRONG":   colors.HexColor("#1E7A3B"),
+        "MODERATE": colors.HexColor("#B85C00"),
+        "WATCH":    colors.HexColor("#B00020"),
+    }
 
-    Parameters
-    ----------
-    company_name  : str  — Used for filename and cover page title
-    report_text   : str  — Markdown-style report from synthesizer
-    research_data : dict — Original research dict used to extract source URLs
+    detected_rating = None
+    cleaned_lines   = []
 
-    Returns
-    -------
-    str — Absolute path to the saved PDF file
-    """
+    for line in body_text.split("\n"):
+        if "Overall Rating:" in line:
+            for keyword in RATING_COLORS:
+                if keyword in line.upper():
+                    detected_rating = keyword
+                    break
+        else:
+            cleaned_lines.append(line)
 
-    # ── Filename ─────────────────────────────────────────────────────────────
-    # Save to temp dir — works on local machine and Streamlit Cloud equally
-    safe_name = sanitize_filename(company_name)
-    tmp_dir   = tempfile.gettempdir()
-    filename  = os.path.join(tmp_dir, f"{safe_name}_Intelligence_Report.pdf")
+    if not detected_rating:
+        return None, body_text
 
-    pdf    = SimpleDocTemplate(filename)
-    styles = getSampleStyleSheet()
-    story  = []
+    badge_text = f"  Overall Rating: {detected_rating}  "
 
-    # ── Cover Page ────────────────────────────────────────────────────────────
-    story.append(Spacer(1, 60))
+    badge_style = ParagraphStyle(
+        "BadgeText",
+        parent=styles["Normal"],
+        textColor=colors.white,
+        fontName="Helvetica-Bold",
+        fontSize=11,
+    )
 
+    badge_table = Table(
+        [[Paragraph(badge_text, badge_style)]],
+        colWidths=[2.5 * inch]
+    )
+
+    badge_table.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), RATING_COLORS[detected_rating]),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+    ]))
+
+    remaining_body = "\n".join(cleaned_lines).strip()
+
+    return badge_table, remaining_body
+
+
+# ── V1.3: Professional Cover Page ─────────────────────────────────────────────
+# Replaces the plain text cover with a structured layout:
+#   - Full-width navy header bar with company name in white
+#   - "Intelligence Report" subtitle below the bar
+#   - Thin accent line
+#   - Metadata block: Generated by, Report Date, Confidentiality note
+# Uses only Table + TableStyle — no new imports needed.
+# Transforms first impression from student project to analyst report.
+
+def build_cover_page(company_name, styles, story):
+
+    NAVY = colors.HexColor("#1B2A4A")
+    GOLD = colors.HexColor("#C9A84C")
+
+    # ── Top spacer ────────────────────────────────────────────────────────────
+    story.append(Spacer(1, 80))
+
+    # ── Navy header bar with company name ─────────────────────────────────────
+    company_style = ParagraphStyle(
+        "CoverCompany",
+        parent=styles["Normal"],
+        textColor=colors.white,
+        fontName="Helvetica-Bold",
+        fontSize=26,
+        leading=32,
+    )
+
+    header_table = Table(
+        [[Paragraph(company_name.upper(), company_style)]],
+        colWidths=[6.5 * inch]
+    )
+
+    header_table.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), NAVY),
+        ("TOPPADDING",    (0, 0), (-1, -1), 28),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 28),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 24),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 24),
+    ]))
+
+    story.append(header_table)
+
+    # ── Gold accent line ──────────────────────────────────────────────────────
     story.append(
-        Paragraph(
-            f"{company_name} Intelligence Report",
-            styles["Title"]
+        HRFlowable(
+            width="100%",
+            thickness=3,
+            color=GOLD,
+            spaceAfter=0,
+            spaceBefore=0
         )
     )
 
     story.append(Spacer(1, 20))
 
+    # ── Subtitle ──────────────────────────────────────────────────────────────
+    subtitle_style = ParagraphStyle(
+        "CoverSubtitle",
+        parent=styles["Normal"],
+        textColor=NAVY,
+        fontName="Helvetica",
+        fontSize=15,
+        leading=20,
+    )
+
     story.append(
-        Paragraph(
-            "Generated by ResearchMind",
-            styles["Normal"]
+        Paragraph("Company Intelligence Report", subtitle_style)
+    )
+
+    story.append(Spacer(1, 6))
+
+    story.append(
+        HRFlowable(
+            width="100%",
+            thickness=0.5,
+            color=colors.HexColor("#CCCCCC"),
+            spaceAfter=0
         )
     )
 
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 40))
 
-    # Date added to cover page
+    # ── Metadata block ────────────────────────────────────────────────────────
+    meta_style = ParagraphStyle(
+        "CoverMeta",
+        parent=styles["Normal"],
+        textColor=colors.HexColor("#444444"),
+        fontName="Helvetica",
+        fontSize=10,
+        leading=18,
+    )
+
     story.append(
         Paragraph(
-            f"Report Date: {datetime.now().strftime('%B %d, %Y')}",
-            styles["Normal"]
+            f"<b>Generated by:</b> ResearchMind AI",
+            meta_style
+        )
+    )
+
+    story.append(
+        Paragraph(
+            f"<b>Report Date:</b> {datetime.now().strftime('%B %d, %Y')}",
+            meta_style
+        )
+    )
+
+    story.append(
+        Paragraph(
+            "<b>Classification:</b> Confidential — For Internal Use Only",
+            meta_style
+        )
+    )
+
+    story.append(Spacer(1, 50))
+
+    # ── Bottom branding line ──────────────────────────────────────────────────
+    story.append(
+        HRFlowable(
+            width="100%",
+            thickness=0.5,
+            color=colors.HexColor("#CCCCCC"),
+            spaceAfter=10
+        )
+    )
+
+    brand_style = ParagraphStyle(
+        "CoverBrand",
+        parent=styles["Normal"],
+        textColor=colors.HexColor("#999999"),
+        fontName="Helvetica",
+        fontSize=8,
+    )
+
+    story.append(
+        Paragraph(
+            "This report was automatically generated using AI-powered research. "
+            "Verify all data with primary sources before making business decisions.",
+            brand_style
         )
     )
 
     story.append(PageBreak())
 
+
+# ── Main Builder ──────────────────────────────────────────────────────────────
+
+def create_company_report(company_name, report_text, research_data=None):
+
+    safe_name = sanitize_filename(company_name)
+    tmp_dir   = tempfile.gettempdir()
+    filename  = os.path.join(tmp_dir, f"{safe_name}_Intelligence_Report.pdf")
+
+    pdf = SimpleDocTemplate(
+        filename,
+        leftMargin=0.85 * inch,
+        rightMargin=0.85 * inch,
+        topMargin=1 * inch,
+        bottomMargin=1 * inch
+    )
+    styles = getSampleStyleSheet()
+    story  = []
+
+    # ── V1.3: Professional cover page ─────────────────────────────────────────
+    build_cover_page(company_name, styles, story)
+
     # ── Report Sections ───────────────────────────────────────────────────────
-    # Clean text before parsing to fix symbol rendering issues
     report_text = clean_text_for_pdf(report_text)
     sections    = report_text.split("##")
 
@@ -140,17 +288,40 @@ def create_company_report(company_name, report_text, research_data=None):
             Paragraph(heading, styles["Heading1"])
         )
 
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
+
+        story.append(
+            HRFlowable(
+                width="100%",
+                thickness=0.5,
+                color=colors.HexColor("#CCCCCC"),
+                spaceAfter=6
+            )
+        )
 
         if body:
-            story.append(
-                Paragraph(body, styles["BodyText"])
-            )
+
+            if "Overall Rating:" in body:
+
+                badge, remaining_body = build_rating_badge(body, styles)
+
+                if badge:
+                    story.append(badge)
+                    story.append(Spacer(1, 10))
+
+                if remaining_body:
+                    story.append(
+                        Paragraph(remaining_body, styles["BodyText"])
+                    )
+
+            else:
+                story.append(
+                    Paragraph(body, styles["BodyText"])
+                )
 
         story.append(Spacer(1, 20))
 
     # ── Sources Page ──────────────────────────────────────────────────────────
-    # Only added if research_data was passed in and contains URLs
     if research_data:
         source_urls = extract_source_urls(research_data)
 
@@ -161,7 +332,16 @@ def create_company_report(company_name, report_text, research_data=None):
                 Paragraph("Sources & References", styles["Heading1"])
             )
 
-            story.append(Spacer(1, 10))
+            story.append(
+                HRFlowable(
+                    width="100%",
+                    thickness=0.5,
+                    color=colors.HexColor("#CCCCCC"),
+                    spaceAfter=6
+                )
+            )
+
+            story.append(Spacer(1, 6))
 
             for i, url in enumerate(source_urls, 1):
                 url_clean = clean_text_for_pdf(url)

@@ -62,7 +62,7 @@ if st.button("Generate Report"):
     try:
 
         progress_bar = st.progress(0)
-        status_text = st.empty()
+        status_text  = st.empty()
 
         # STEP 1
         status_text.text(
@@ -97,7 +97,9 @@ if st.button("Generate Report"):
 
         progress_bar.progress(50)
 
-        report = generate_full_report(research_data)
+        # RANK 3: generate_full_report now returns (report, confidence)
+        # confidence dict contains score, breakdown, total_sources
+        report, confidence = generate_full_report(research_data)
 
         progress_bar.progress(75)
 
@@ -115,13 +117,60 @@ if st.button("Generate Report"):
         )
 
         progress_bar.progress(100)
-
         status_text.text("✅ Report ready!")
 
         st.success("Report Generated Successfully!")
 
+        # ── Metrics Cards ─────────────────────────────────────────────────────
+        # RANK 3: Third card now shows research confidence score
+        # instead of section count — more meaningful signal.
+
+        total_sources = sum(
+            len(docs) for docs in research_data.values()
+        )
+
+        total_queries     = len(research_data)
+        queries_with_data = sum(
+            1 for docs in research_data.values() if len(docs) > 0
+        )
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                label="🌐 Sources Scraped",
+                value=total_sources
+            )
+
+        with col2:
+            st.metric(
+                label="🔍 Research Areas Covered",
+                value=f"{queries_with_data} / {total_queries}"
+            )
+
+        with col3:
+            # Confidence score color — green above 70, orange above 40, red below
+            score = confidence["score"]
+            if score >= 70:
+                score_display = f"{score} / 100 ✅"
+            elif score >= 40:
+                score_display = f"{score} / 100 ⚠️"
+            else:
+                score_display = f"{score} / 100 ❌"
+
+            st.metric(
+                label="🎯 Research Confidence",
+                value=score_display
+            )
+
+        st.divider()
+
+        # ── Report Markdown ───────────────────────────────────────────────────
         st.markdown(report)
 
+        st.divider()
+
+        # ── Download Button ───────────────────────────────────────────────────
         with open(pdf_path, "rb") as file:
 
             st.download_button(
